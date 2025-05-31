@@ -5,15 +5,30 @@ require 'uri'
 require 'date'
 require 'time'
 require 'securerandom'
+require 'dotenv'
+
+# Load environment variables
+Dotenv.load
 
 class SenseToObs
-  def initialize(obs_host = nil, obs_api_key = nil, debug_box_id = nil)
+  def initialize()
+    # Validate OBS configuration
+    @obs_host =  ENV['OBS_HOST']
+    @obs_api_key = ENV['OBS_API_KEY']
+    
+    if @obs_host.nil? || @obs_api_key.nil?
+      puts "Error: OBS configuration is incomplete:"
+      puts "  OBS_HOST: #{@obs_host.nil? ? 'missing' : 'configured'}"
+      puts "  OBS_API_KEY: #{@obs_api_key.nil? ? 'missing' : 'configured'}"
+      puts "Please configure both OBS_HOST and OBS_API_KEY to enable uploads to OpenBikeSensor Portal."
+      exit 1
+    end
+
     @last_update_dir = 'last_updates'
     @base_url = 'https://api.opensensemap.org'
-    @debug_box_id = debug_box_id
+    @debug_box_id = ENV['DEBUG_BOX_ID']
     @time_gap_threshold = 3600 # 1 hour in seconds
-    @obs_host = obs_host || 'https://portal.openbikesensor.org'
-    @obs_api_key = obs_api_key
+
     
     # Create last_update directory if it doesn't exist
     Dir.mkdir(@last_update_dir) unless Dir.exist?(@last_update_dir)
@@ -292,6 +307,10 @@ class SenseToObs
       response = http.request(request)
       if response.is_a?(Net::HTTPSuccess)
         puts "    Successfully uploaded trip to OpenBikeSensor portal"
+        # Save the latest timestamp for this box after successful upload
+        latest_timestamp = trip_data.last[0..1].join(' ') # Combine date and time from last row
+        save_last_update(box_id, latest_timestamp)
+        puts "    Updated last update timestamp for box #{box_id} to: #{format_time(Time.parse(latest_timestamp))}"
         return true
       else
         puts "    Failed to upload trip: #{response.code} - #{response.message}"
@@ -468,13 +487,6 @@ class SenseToObs
         export_trip_to_csv(trip, box_id, trip_index, box_speed_data)
       end
       
-      # Save the latest timestamp for this box
-      latest_timestamp = data.map { |d| d['createdAt'] }.max
-      if latest_timestamp
-        save_last_update(box_id, latest_timestamp)
-        puts "\nUpdated last update timestamp for box #{box_id} to: #{format_time(Time.parse(latest_timestamp))}"
-      end
-      
       puts "----------------------------------------"
     end
   end
@@ -482,7 +494,7 @@ end
 
 # Run the script
 begin
-  sense_to_obs = SenseToObs.new('https://obs.adfc-hessen.de', "XXXXX")
+  sense_to_obs = SenseToObs.new()
   sense_to_obs.process_data
 rescue StandardError => e
   puts "Fatal error: #{e.message}"
